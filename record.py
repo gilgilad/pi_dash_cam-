@@ -1,12 +1,22 @@
+import datetime
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import logging
 import time
-
+import  epaper
+import os
+import threading
+import subprocess
+import psutil
+logger = logging.getLogger(__name__)
+DISPLAY_TYPE = "epd1in54"
+VIDEO_SIZE = '640x480'
+SEGMENT_TIME = 30
 class RecorderDisplay:
     def __init__(self):
-        self.epd = epaper.epd(DISPLAY_TYPE).EPD()
-        self.font = ImageFont.truetype(os.path.join(fontdir, '/usr/share/fonts/truetype/freefont/FreeMono.ttf'), 14)
-        self.big_font = ImageFont.truetype(os.path.join(fontdir, 'Font.ttc'), 24)
+        self.epd  =epaper.epaper(DISPLAY_TYPE).EPD()
+        self.font = ImageFont.truetype( '/usr/share/fonts/truetype/freefont/FreeMono.ttf', 14)
+        # self.big_font = ImageFont.truetype(os.path.join(fontdir, 'Font.ttc'), 24)
         self.init_display()
 
     def init_display(self):
@@ -57,17 +67,17 @@ class RecorderDisplay:
         logging.info("Display sleeping")
 
 
-      def draw_status_screen(self, is_recording, elapsed_time, storage_percent, filename=None):
+    def draw_status_screen(self, is_recording, elapsed_time, storage_percent, filename=None):
         # Create base image if it doesn't exist
         if not hasattr(self, 'base_image'):
             self.base_image = Image.new('1', (self.epd.width, self.epd.height), 255)
             self.base_draw = ImageDraw.Draw(self.base_image)
-            self.epd.init()
+            self.epd.init(self.epd.lut_full_update)
             self.epd.Clear()
 
         # Create new image for updates
-        update_image = Image.new('1', (self.epd.width, self.epd.height), 255)
-        draw = ImageDraw.Draw(update_image)
+        # update_image = Image.new('1', (self.epd.width, self.epd.height), 255)
+        draw = ImageDraw.Draw( self.base_image)
         
         # Static regions - only update if values changed
         if not hasattr(self, 'last_storage') or self.last_storage != storage_percent:
@@ -101,7 +111,7 @@ class RecorderDisplay:
             draw.rectangle((10, 25, 40, 55), fill=255)
 
         # Update display
-        self.epd.display(self.epd.getbuffer(update_image))
+        self.epd.displayPartial(self.epd.getbuffer(self.base_image))
 
 
 
@@ -114,105 +124,47 @@ class Recorder:
         self.frame_interval = 10  # Seconds between thumbnails
 
     def start_recording(self, input_device, output_path):
-        # ffmpeg_cmd = [
-        #     "ffmpeg",
-        #     "-f", "v4l2",
-        #     "-input_format", "mjpeg",
-        #     "-video_size", "1280x720",
-        #     "-framerate", "30",
-        #     "-i", input_device,
-        #     "-c:v", "libx264",
-        #     "-preset", "ultrafast",
-        #     output_path,
-        #     "-vf", f"fps=1/{self.frame_interval}",
-        #     "-q:v", "2",
-        #     "thumbnail_%03d.jpg"
-        # ]
-         segments_path = os.path.join(recording_path, f"time_{time_prefix}_%03d.mp4")
-        command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\:%Y-%m-%d %H\:%M\:%S}}\':x=10:y=10:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
-    
-        try:
-            self.recording_process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True
-            )
-            self.start_time = time.time()
-            self.is_recording = True
-            logging.info("Recording started")
-        except Exception as e:
-            logging.error(f"Recording start failed: {str(e)}")
+        ROOT_PATH = os.getenv("ROOT_PATH", "/home/pi")
+        RECORDINGS_PATH = os.getenv("RECORDINGS_PATH", "recordings")
+        DATE_FMT = "%Y_%m_%d_%H"
+        HOUR_FMT = "%H_%M_%S"
+        SEGMENT_TIME = 5
+        VIDEO_SIZE = os.getenv("VIDEO_SIZE", "640x480")
+        Path(RECORDINGS_PATH).mkdir(parents=True, exist_ok=True)
+        date = datetime.datetime.now()
+        folder_name = date.strftime(DATE_FMT)
+        time_prefix = date.strftime(HOUR_FMT)
 
-    def stop_recording(self):
-        if self.recording_process and self.recording_process.poll() is None:
-            self.recording_process.terminate()
-            self.recording_process.wait()
-            self.is_recording = False
-            logging.info("Recording stopped")
-
-    def get_storage_percent(self):
-        try:
-            return psutil.disk_usage('/').percent
-        except Exception as e:
-            logging.error(f"Storage check failed: {str(e)}")
-            return 0
-
-    def update_display(self):
-        while True:
-            if self.is_recording:
-                elapsed = time.strftime('%H:%M:%S', time.gmtime(time.time() - self.start_time))
-                storage = self.get_storage_percent()
-                self.display.draw_status_screen(True, elapsed, storage)
-            else:
-                self.display.draw_status_screen(False, "00:00:00", self.get_storage_percent())
-            
-            time.sleep(1)
-
-    def monitor_thumbnails(self):
-        while self.is_recording:
-            latest = max(glob.glob("thumbnail_*.jpg"), key=os.path.getctime, default=None)
-            if latest:
-                self.display.update_thumbnail(latest)
-            time.sleep(self.frame_interval)
-
-
-
-
-class Recorder:
-    def __init__(self, display):
-        self.recording_process = None
-        self.display = display
-        self.start_time = None
-        self.is_recording = False
-        self.frame_interval = 10  # Seconds between thumbnails
-
-    def start_recording(self, input_device, output_path):
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-f", "v4l2",
-            "-input_format", "mjpeg",
-            "-video_size", "1280x720",
-            "-framerate", "30",
-            "-i", input_device,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            output_path,
-            "-vf", f"fps=1/{self.frame_interval}",
-            "-q:v", "2",
-            "thumbnail_%03d.jpg"
-        ]
+        recording_path = os.path.join(ROOT_PATH, RECORDINGS_PATH, folder_name)
+        Path(recording_path).mkdir(parents=True, exist_ok=True)
         
+        # setup_logging(recording_path)
+        logging.info(f"Starting recording session in {recording_path}")
+
+        segments_path = os.path.join(recording_path, f"time_{time_prefix}_%03d.mp4")
+        # command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\:%Y-%m-%d %H\:%M\:%S}}\':x=10:y=10:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+        command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\\:%Y-%m-%d %H\\\\:%M\\\\:%S}}\':x=10:y=10:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+        logging.info(f"Executing command: {command}")
+        # process = subprocess.Popen(command, shell=True, stderr=subprocess.PIPE, universal_newlines=True)
+# subprocess.Popen(command, shell=True, stderr=subprocess.PIPE, universal_newlines=True)
         try:
             self.recording_process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True
+                command,
+                shell=True, stderr=subprocess.PIPE, universal_newlines=True
             )
             self.start_time = time.time()
             self.is_recording = True
             logging.info("Recording started")
+        # try:
+        #     self.recording_process = subprocess.Popen(
+        #         command,
+        #         stdout=subprocess.PIPE,
+        #         stderr=subprocess.STDOUT,
+        #         universal_newlines=True
+        #     )
+        #     self.start_time = time.time()
+        #     self.is_recording = True
+        #     logging.info("Recording started")
         except Exception as e:
             logging.error(f"Recording start failed: {str(e)}")
 
@@ -226,6 +178,7 @@ class Recorder:
     def get_storage_percent(self):
         try:
             return psutil.disk_usage('/').percent
+            pass
         except Exception as e:
             logging.error(f"Storage check failed: {str(e)}")
             return 0
@@ -247,6 +200,8 @@ class Recorder:
             if latest:
                 self.display.update_thumbnail(latest)
             time.sleep(self.frame_interval)
+
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -256,20 +211,17 @@ if __name__ == "__main__":
         recorder = Recorder(display)
         
         # Start display update thread
-        display_thread = threading.Thread(target=recorder.update_display)
-        display_thread.daemon = True
-        display_thread.start()
+        # display_thread = threading.Thread(target=recorder.update_display)
+        # display_thread.daemon = True
+        # display_thread.start()
         
         # Example usage:
-        recorder.start_recording("/dev/video0", "recording.mp4")
+        recorder.start_recording("/dev/video0","/home/pi/recordings/")
         
         # Run for 60 seconds
         time.sleep(60)
         recorder.stop_recording()
         
-    except KeyboardInterrupt:
-        recorder.stop_recording()
-    finally:
-        display.clear()
-        display.sleep()
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
 
