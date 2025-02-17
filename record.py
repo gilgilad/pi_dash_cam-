@@ -1,3 +1,6 @@
+import sys
+print( sys.executable)
+
 import datetime
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -111,8 +114,6 @@ class StatusScreen:
 
         self.blip_state = not self.blip_state
 
-        # rotate image 
-        
         # Update display
         self.epd.display(self.epd.getbuffer(self.base_image.rotate(180)))
 
