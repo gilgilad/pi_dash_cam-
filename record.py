@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import logging
 import time
-import  epaper
+import epaper
 import os
 import threading
 import subprocess
@@ -14,7 +14,7 @@ VIDEO_SIZE = '640x480'
 SEGMENT_TIME = 30
 class RecorderDisplay:
     def __init__(self):
-        self.epd  =epaper.epaper(DISPLAY_TYPE).EPD()
+        self.epd  = epaper.epaper(DISPLAY_TYPE).EPD()
         self.font = ImageFont.truetype( '/usr/share/fonts/truetype/freefont/FreeMono.ttf', 14)
         # self.big_font = ImageFont.truetype(os.path.join(fontdir, 'Font.ttc'), 24)
         self.init_display()
@@ -111,7 +111,7 @@ class RecorderDisplay:
             draw.rectangle((10, 25, 40, 55), fill=255)
 
         # Update display
-        self.epd.displayPartial(self.epd.getbuffer(self.base_image))
+        self.epd.display(self.epd.getbuffer(self.base_image))
 
 
 
@@ -142,16 +142,28 @@ class Recorder:
         logging.info(f"Starting recording session in {recording_path}")
 
         segments_path = os.path.join(recording_path, f"time_{time_prefix}_%03d.mp4")
-        # command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\:%Y-%m-%d %H\:%M\:%S}}\':x=10:y=10:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
-        command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\\:%Y-%m-%d %H\\\\:%M\\\\:%S}}\':x=10:y=10:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+        command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime:%T}} %{{localtime:%Y-%m-%d}}\':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5: x=10: y=10" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
         logging.info(f"Executing command: {command}")
-        # process = subprocess.Popen(command, shell=True, stderr=subprocess.PIPE, universal_newlines=True)
-# subprocess.Popen(command, shell=True, stderr=subprocess.PIPE, universal_newlines=True)
+        
         try:
             self.recording_process = subprocess.Popen(
                 command,
-                shell=True, stderr=subprocess.PIPE, universal_newlines=True
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True
             )
+            def print_output(process):
+                while True:
+                    line = process.stdout.readline()
+                    if not line:
+                        break  # Process finished
+                    print(line.strip())  # Print the line to the console
+
+            # Start a separate thread to handle output
+            output_thread = threading.Thread(target=print_output, args=(self.recording_process,))
+            output_thread.daemon = True  # Allow the main thread to exit even if this thread is running
+            output_thread.start()
             self.start_time = time.time()
             self.is_recording = True
             logging.info("Recording started")
