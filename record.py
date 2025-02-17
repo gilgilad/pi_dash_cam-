@@ -21,6 +21,7 @@ class StatusScreen:
 
         # Initialize base image
         self.base_image = Image.new('1', (self.epd.width, self.epd.height), 255)
+        
         self.base_draw = ImageDraw.Draw(self.base_image)
 
         # Initialize display
@@ -31,6 +32,7 @@ class StatusScreen:
         self.last_storage = None
         self.last_status = None
         self.blip_state = True
+        self.last_elapsed = None
 
     def draw_storage_bar(self, draw, storage_percent, x, y, width, outlier_percent=None):
         """Draws a storage bar with an optional outlier."""
@@ -43,9 +45,10 @@ class StatusScreen:
         bar_width = int(width_edge * (storage_percent / 100))
         draw.rectangle((x, y, x + bar_width, y + 10+7), fill=0)  # Main bar
 
+        draw.rectangle((x, y + 30, x + len(f"{storage_percent}%")*24 , y + 30+24), fill=1)
         draw.text((x, y + 30), f"{storage_percent}%", font=self.font, fill=0)  # Text below bar
     
-    def draw_blip_X(self, draw, x, y, size):
+    def draw_blip_X(self, draw, x, y, size, recording=False):
         """Draws the blip animation (crosshair) with configurable parameters."""
 
         x1 = x
@@ -57,7 +60,7 @@ class StatusScreen:
         draw.line((x1, y2, x2, y1), width=3, fill=1)
 
       
-        if self.blip_state:  # Use self.blip_state for blinking
+        if self.blip_state and not recording:  # Use self.blip_state for blinking
             draw.line((x1, y1, x2, y2), width=3, fill=0)  # Blinking part
             draw.line((x1, y2, x2, y1), width=3, fill=0) 
         
@@ -75,36 +78,43 @@ class StatusScreen:
 
         # Update status header text if value changed
         if self.last_status != is_recording:
+            draw.rectangle((50, 2, 120, 20), fill=1)
+            # self.epd.display(self.epd.getbuffer(self.base_image))
             status_text = "REC" if is_recording else "IDLE"
-            draw.text((50, 2), f" {status_text}", font=self.font, fill=1 if is_recording else 0)
+            draw.text((50, 2), f"{status_text}", font=self.font, fill=0 )
             self.last_status = is_recording
-
+        def char_changed(last_elapsed, elapsed_time):
+            for i in range(len(elapsed_time)):
+                    if last_elapsed[i] != elapsed_time[i]:
+                        return i
+        if self.last_elapsed != elapsed_time:
+            i = char_changed(self.last_elapsed, elapsed_time) if self.last_elapsed else 0
+            draw.rectangle((5+i*10, 55, 200, 75), fill=1)
+            # self.epd.display(self.epd.getbuffer(self.base_image))
+        self.last_elapsed = elapsed_time
         # Always update elapsed time as it changes frequently
-        draw.text((10, 55), f"Time: {elapsed_time}", font=self.font, fill=0)
+        draw.text((5, 55), f"Time:{elapsed_time}", font=self.font, fill=0)
+        # draw a blinking X
+        blip_x = 10  # X-coordinate of the blip
+        blip_y = 5  # Y-coordinate of the blip
+        blip_size = 30  # Size of the blip (crosshair length)
 
+
+        self.draw_blip_X(draw, blip_x, blip_y, blip_size, is_recording)
         # Recording blip animation
         if is_recording:
-            draw.ellipse((10, 25, 40, 55), outline=0)
+            draw.ellipse((3, 3, 37, 37), outline=0)
             if self.blip_state:
-                draw.ellipse((13, 28, 37, 52), fill=0)
-          
-        else:
-            # draw a blinking X
-            blip_x = 10  # X-coordinate of the blip
-            blip_y = 5  # Y-coordinate of the blip
-            blip_size = 30  # Size of the blip (crosshair length)
+                draw.ellipse((5, 5, 35, 35), fill=0)
+            else:
+                draw.ellipse((5, 5, 35, 35), fill=1)
 
- 
-            self.draw_blip_X(draw, blip_x, blip_y, blip_size)
-            # draw.line((10, 25, 40, 55),width=3 , fill=1)
-            # draw.line((10, 55, 40, 25),width=3 ,  fill=1) 
-            # if self.blip_state:
-            #     draw.line((10, 25, 40, 55),width=3 , fill=0)
-            #     draw.line((10, 55, 40, 25),width=3 , fill=0)
         self.blip_state = not self.blip_state
 
+        # rotate image 
+        
         # Update display
-        self.epd.display(self.epd.getbuffer(self.base_image))
+        self.epd.display(self.epd.getbuffer(self.base_image.rotate(180)))
 
 
 
@@ -151,7 +161,7 @@ class Recorder:
         RECORDINGS_PATH = os.getenv("RECORDINGS_PATH", "recordings")
         DATE_FMT = "%Y_%m_%d_%H"
         HOUR_FMT = "%H_%M_%S"
-        SEGMENT_TIME = 5
+        SEGMENT_TIME = 30
         VIDEO_SIZE = os.getenv("VIDEO_SIZE", "640x480")
         Path(RECORDINGS_PATH).mkdir(parents=True, exist_ok=True)
         date = datetime.datetime.now()
@@ -165,7 +175,8 @@ class Recorder:
         logging.info(f"Starting recording session in {recording_path}")
 
         segments_path = os.path.join(recording_path, f"time_{time_prefix}_%03d.mp4")
-        command = f'ffmpeg -i /dev/video0 -c:v libx264 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime:%T}} %{{localtime:%Y-%m-%d}}\':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5: x=10: y=10" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+        command = f'ffmpeg -i /dev/video0 -c:v libx264 -framerate 10 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\\\\:%Y-%m-%d %T}}\' :fontcolor=white@0.8:fontsize=24:box=1:boxcolor=black@0.5:x=7:y=10" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+
         logging.info(f"Executing command: {command}")
         
         try:
@@ -176,6 +187,7 @@ class Recorder:
                 stderr=subprocess.STDOUT,
                 universal_newlines=True
             )
+
             def print_output(process):
                 while True:
                     line = process.stdout.readline()
@@ -190,18 +202,14 @@ class Recorder:
             self.start_time = time.time()
             self.is_recording = True
             logging.info("Recording started")
-        # try:
-        #     self.recording_process = subprocess.Popen(
-        #         command,
-        #         stdout=subprocess.PIPE,
-        #         stderr=subprocess.STDOUT,
-        #         universal_newlines=True
-        #     )
-        #     self.start_time = time.time()
-        #     self.is_recording = True
-        #     logging.info("Recording started")
+
         except Exception as e:
             logging.error(f"Recording start failed: {str(e)}")
+
+    def __del__(self):
+        self.stop_recording()
+        self.display.clear()
+        self.display.sleep()
 
     def stop_recording(self):
         if self.recording_process and self.recording_process.poll() is None:
@@ -227,14 +235,7 @@ class Recorder:
             else:
                 self.display.screen.draw_status_screen(False, "00:00:00", self.get_storage_percent())
             
-            time.sleep(1)
-
-    def monitor_thumbnails(self):
-        while self.is_recording:
-            latest = max(glob.glob("thumbnail_*.jpg"), key=os.path.getctime, default=None)
-            if latest:
-                self.display.update_thumbnail(latest)
-            time.sleep(self.frame_interval)
+            time.sleep(0.2)
 
 
 
@@ -251,12 +252,12 @@ if __name__ == "__main__":
         display_thread.start()
         
         # Example usage:
-        # recorder.start_recording("/dev/video0","/home/pi/recordings/")
-        
-        # Run for 60 seconds
-        time.sleep(60)
+        recorder.start_recording("/dev/video0","/home/pi/recordings/")
+        while True:
+            time.sleep(10)
         # recorder.stop_recording()
         
     except Exception as e:
+        recorder.stop_recording()
         logger.error(f"An error occurred: {str(e)}")
 
