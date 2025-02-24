@@ -1,5 +1,4 @@
 import sys
-print( sys.executable)
 
 import datetime
 from pathlib import Path
@@ -26,8 +25,8 @@ def setup_logging():
             logging.StreamHandler(),        # Log to screen (console)
         ],
     )
-logger = setup_logging ()
-
+logger = logging.getLogger(__name__)
+setup_logging()
 class StatusScreen:
     def __init__(self, epd, font):
         self.epd = epd
@@ -39,7 +38,8 @@ class StatusScreen:
         self.base_draw = ImageDraw.Draw(self.base_image)
 
         # Initialize display
-        self.epd.init(self.epd.lut_full_update)
+        self.epd.init(self.epd.lut_partial_update)
+
         self.epd.Clear()
 
         # Initialize state tracking attributes
@@ -82,7 +82,7 @@ class StatusScreen:
 
     def draw_status_screen(self, is_recording, elapsed_time, storage_percent, filename=None):
         draw = ImageDraw.Draw(self.base_image)
-        self.epd.init(self.epd.lut_partial_update)
+        
         # Update storage text and bar if value changed
         if self.last_storage != storage_percent:
             self.draw_storage_bar(draw, storage_percent, 10, 100, self.epd.width - 20)
@@ -93,7 +93,6 @@ class StatusScreen:
         # Update status header text if value changed
         if self.last_status != is_recording:
             draw.rectangle((50, 2, 120, 20), fill=1)
-            # self.epd.display(self.epd.getbuffer(self.base_image))
             status_text = "REC" if is_recording else "IDLE"
             draw.text((50, 2), f"{status_text}", font=self.font, fill=0 )
             self.last_status = is_recording
@@ -140,14 +139,16 @@ class RecorderDisplay:
 
     def init_display(self):
         # Initialize display in full update mode for the first clear
-        self.epd.init(self.epd.lut_full_update)
+        self.epd.init(self.epd.lut_partial_update)
         self.epd.Clear(0xFF)
         logging.info("Display initialized")
-
+    
+    def __del__(self):
+        del self.epd
   
     def clear(self):
         # Clear the display in full update mode
-        self.epd.init(self.epd.lut_full_update)
+        # self.epd.init(self.epd.lut_full_update)
         self.epd.Clear(0xFF)
         logging.info("Display cleared")
 
@@ -161,9 +162,9 @@ class RecorderDisplay:
 
 
 class Recorder:
-    def __init__(self, display):
+    def __init__(self, display:RecorderDisplay):
         self.recording_process = None
-        self.display = display
+        self.display :RecorderDisplay = display
         self.start_time = None
         self.is_recording = False
         self.frame_interval = 10  # Seconds between thumbnails
@@ -269,15 +270,32 @@ if __name__ == "__main__":
         while True:
             time.sleep(10)
             if not display_thread.is_alive():
-                logger.info("Display thread died, restarting)")
+                logger.info("Display thread died, restarting")
                 display_thread.join()
+                recorder.stop_recording()
+                display.clear()
+                del display
+                logger.info("Creating new display")
+                display = RecorderDisplay()
+                recorder = Recorder(display)
+                
+                # Start display update thread
+                display_thread = threading.Thread(target=recorder.update_display)
+                display_thread.daemon = True
+                display_thread.start()
+                
+                # Example usage:
+                recorder.start_recording("/dev/video0","/home/pi/recordings/")
+
+
                 display_thread = threading.Thread(target=recorder.update_display)
                 display_thread.daemon = True
                 display_thread.start()
    
         
     except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
         if recorder is not None :
             recorder.stop_recording()
-        logger.error(f"An error occurred: {str(e)}")
+       
 

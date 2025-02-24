@@ -21,3 +21,6 @@ sudo chmod +x /etc/rc.local
 sudo systemctl status rc-local.service
 
 sudo pip3 install waveshare-epaper --break-system-packages
+
+
+sudo apt install dnsmasq
