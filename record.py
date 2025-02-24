@@ -11,11 +11,22 @@ import os
 import threading
 import subprocess
 import psutil
-logger = logging.getLogger(__name__)
+
 DISPLAY_TYPE = "epd1in54"
 VIDEO_SIZE = '640x480'
 SEGMENT_TIME = 30
-
+ROOT_PATH = os.getenv("ROOT_PATH", "/home/pi")
+def setup_logging():
+    log_file = os.path.join(ROOT_PATH, "screen.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),  # Log to file
+            logging.StreamHandler(),        # Log to screen (console)
+        ],
+    )
+logger = setup_logging ()
 
 class StatusScreen:
     def __init__(self, epd, font):
@@ -116,7 +127,7 @@ class StatusScreen:
 
         # Update display
         self.epd.display(self.epd.getbuffer(self.base_image.rotate(180)))
-
+        logger.info("display updated")
 
 
 class RecorderDisplay:
@@ -158,7 +169,7 @@ class Recorder:
         self.frame_interval = 10  # Seconds between thumbnails
 
     def start_recording(self, input_device, output_path):
-        ROOT_PATH = os.getenv("ROOT_PATH", "/home/pi")
+      
         RECORDINGS_PATH = os.getenv("RECORDINGS_PATH", "recordings")
         DATE_FMT = "%Y_%m_%d_%H"
         HOUR_FMT = "%H_%M_%S"
@@ -230,6 +241,7 @@ class Recorder:
     def update_display(self):
         while True:
             if self.is_recording:
+                logger.info("Updating display")
                 elapsed = time.strftime('%H:%M:%S', time.gmtime(time.time() - self.start_time))
                 storage = self.get_storage_percent()
                 self.display.screen.draw_status_screen(True, elapsed, storage)
@@ -242,7 +254,7 @@ class Recorder:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+    recorder = None 
     try:
         display = RecorderDisplay()
         recorder = Recorder(display)
@@ -256,9 +268,16 @@ if __name__ == "__main__":
         recorder.start_recording("/dev/video0","/home/pi/recordings/")
         while True:
             time.sleep(10)
-        # recorder.stop_recording()
+            if not display_thread.is_alive():
+                logger.info("Display thread died, restarting)")
+                display_thread.join()
+                display_thread = threading.Thread(target=recorder.update_display)
+                display_thread.daemon = True
+                display_thread.start()
+   
         
     except Exception as e:
-        recorder.stop_recording()
+        if recorder is not None :
+            recorder.stop_recording()
         logger.error(f"An error occurred: {str(e)}")
 
