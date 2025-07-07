@@ -126,7 +126,7 @@ class StatusScreen:
 
         # Update display
         self.epd.display(self.epd.getbuffer(self.base_image.rotate(180)))
-        logger.info("display updated")
+        # logger.info("display updated")
 
 
 class RecorderDisplay:
@@ -174,7 +174,7 @@ class Recorder:
         RECORDINGS_PATH = os.getenv("RECORDINGS_PATH", "recordings")
         DATE_FMT = "%Y_%m_%d_%H"
         HOUR_FMT = "%H_%M_%S"
-        SEGMENT_TIME = 30
+        SEGMENT_TIME = 10
         VIDEO_SIZE = os.getenv("VIDEO_SIZE", "640x480")
         Path(RECORDINGS_PATH).mkdir(parents=True, exist_ok=True)
         date = datetime.datetime.now()
@@ -187,8 +187,8 @@ class Recorder:
         # setup_logging(recording_path)
         logging.info(f"Starting recording session in {recording_path}")
 
-        segments_path = os.path.join(recording_path, f"time_{time_prefix}_%03d.mp4")
-        command = f'ffmpeg -i /dev/video0 -c:v libx264 -framerate 10 -s {VIDEO_SIZE} -an -sn -dn -vf "drawtext=fontfile=/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\\\\:%Y-%m-%d %T}}\' :fontcolor=white@0.8:fontsize=24:box=1:boxcolor=black@0.5:x=7:y=10" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
+        segments_path = os.path.join(recording_path, f"time_{time_prefix}_%05d.mp4")
+        command = f'ffmpeg -i /dev/video0 -c:v libx264 -framerate 10 -s {VIDEO_SIZE} -an -sn -dn -vf "hflip,drawtext=fontfile=/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf:text=\'%{{localtime\\\\:%Y-%m-%d %T}}\' :fontcolor=white@0.8:fontsize=24:box=1:boxcolor=black@0.5:x=7:y=10" -segment_time {SEGMENT_TIME} -f segment {segments_path}'
 
         logging.info(f"Executing command: {command}")
         
@@ -206,7 +206,11 @@ class Recorder:
                     line = process.stdout.readline()
                     if not line:
                         break  # Process finished
-                    print(line.strip())  # Print the line to the console
+                    # if issue then set to logging.error and record fals
+                    if "No such file or directory" in line:
+                        logging.error(line.strip())
+                        self.is_recording = False
+                        logging.info(line.strip())  # Print the line to the console
 
             # Start a separate thread to handle output
             output_thread = threading.Thread(target=print_output, args=(self.recording_process,))
@@ -242,7 +246,7 @@ class Recorder:
     def update_display(self):
         while True:
             if self.is_recording:
-                logger.info("Updating display")
+                # logger.info("Updating display")
                 elapsed = time.strftime('%H:%M:%S', time.gmtime(time.time() - self.start_time))
                 storage = self.get_storage_percent()
                 self.display.screen.draw_status_screen(True, elapsed, storage)

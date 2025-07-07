@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Check if connected to WiFi
+#!/bin/bash
+
+# Interface name
+INTERFACE="wlan0"
+
+# Hotspot configuration
+SSID="SPYCAM"
+PASSWORD="1qaz2wsX#"  # Change this!
+IP_ADDRESS="192.168.0.184"
+
+# Check if connected to WiFi
+check_wifi() {
+  ip route | grep -q "default via"
+}
+
+# Configure hotspot mode
+setup_hotspot() {
+  echo "Starting local hotspot..."
+  
+  # Configure static IP
+  sudo ip addr flush dev $INTERFACE
+  sudo ip addr add $IP_ADDRESS/24 dev $INTERFACE
+  sudo ip link set $INTERFACE up
+
+  # Start hostapd
+  sudo systemctl start hostapd
+  
+  # Start dnsmasq
+  sudo systemctl start dnsmasq
+  
+  echo "Local WiFi network enabled: $SSID"
+}
+
+# Restore normal WiFi client mode
+restore_wifi() {
+  echo "Restoring normal WiFi mode..."
+  sudo systemctl stop hostapd
+  sudo systemctl stop dnsmasq
+  sudo ip addr flush dev $INTERFACE
+  sudo systemctl restart wpa_supplicant
+  sudo systemctl restart dhcpcd
+}
+
+# Main logic - Try WiFi connection first
+for i in {1..3}; do
+  echo "Attempt $i: Trying to connect to WiFi..."
+  sleep 10
+  if check_wifi; then
+    echo "Connected to WiFi!"
+    restore_wifi
+    exit 0
+  fi
+done
+
+# If WiFi fails, enable hotspot mode
+echo "Failed to connect to WiFi, starting local hotspot..."
+setup_hotspot

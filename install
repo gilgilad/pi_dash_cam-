@@ -1,0 +1,11 @@
+#!/bin/bash
+# Install required packages
+sudo apt update
+sudo apt install -y hostapd dnsmasq
+
+# Stop services temporarily
+sudo systemctl stop hostapd
+sudo systemctl stop dnsmasq
+
+# Create fallback script
+sudo tee /usr/local/bin/wifi-fallback.sh > /dev/null << 'EOL'
