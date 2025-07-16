@@ -1,0 +1,12 @@
+[Unit]
+Description=Wi-Fi Autoconnect and NetworkManager Fallback Script
+After=network.target
+
+[Service]
+ExecStart=/home/pi/repos/pi_dash_cam-/r.sh
+Restart=on-failure
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

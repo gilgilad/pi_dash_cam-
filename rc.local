@@ -1,0 +1,10 @@
+#!/bin/bash
+# /etc/rc.local
+
+# Wait for network
+sleep 10
+
+python3 /home/pi/repos/pi_dash_cam-/record.py &
+python3 /home/pi/repos/pi_dash_cam-/purge_old_recording.py &
+python -m http.server -d /home/pi/recordings/ &
+exit  0 
